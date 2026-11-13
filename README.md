@@ -70,6 +70,7 @@ npm run build
 | `META_APP_ID` | For token/webhook tools | Meta App ID (numeric string) |
 | `META_APP_SECRET` | For token/webhook tools | Meta App Secret |
 | `META_API_VERSION` | Optional | Meta Graph API version for Instagram and Facebook endpoints — defaults to `v25.0` (verified 2026-05-06). Override only when Meta deprecates a version before meta-mcp ships a new release. Format: `vMAJOR.MINOR` (e.g., `v26.0`); malformed values fall back to the default with a stderr warning. OAuth token endpoints are unversioned and unaffected by this setting |
+| `INSTAGRAM_API_HOST` | Optional | Which Graph host serves the Instagram tools. Default `instagram` (graph.instagram.com, for Instagram Login tokens). Set to `facebook` (graph.facebook.com) for tokens from "API setup with Unified login" or Facebook Login, which newer Meta apps require. Any other value falls back to `instagram` with a stderr warning. Token exchange/refresh tools always use the Instagram Login endpoints and do not apply to Unified login system-user tokens |
 | `THREADS_API_VERSION` | Optional | Threads API version — defaults to `v1.0` (verified 2026-05-06). Threads runs a separate single-major-version track and is not bumped in lockstep with the Graph API. Same `vMAJOR.MINOR` format and fallback behavior as `META_API_VERSION` |
 | `MCP_TRANSPORT` | Optional | Transport to serve MCP over — `stdio` (default) or `http`. See [HTTP Transport](#http-transport) |
 | `MCP_HTTP_PORT` | Optional (http) | TCP port for the HTTP transport — defaults to `3000`. Must be an integer 1–65535 |

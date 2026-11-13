@@ -95,9 +95,34 @@ function resolveApiVersion(
   return raw;
 }
 
+export type InstagramApiHost = "instagram" | "facebook";
+
+/**
+ * Which Graph host serves the Instagram tools (`client.ig`).
+ *
+ * - `"instagram"` (default): graph.instagram.com, for Instagram Login tokens.
+ * - `"facebook"`: graph.facebook.com, for tokens from "API setup with Unified
+ *   login" or Facebook Login (system-user / EAA... tokens). New Meta apps only
+ *   offer Unified login, so their tokens are not accepted by graph.instagram.com.
+ *
+ * Opt-in via `INSTAGRAM_API_HOST=facebook` or the `instagramHost` option.
+ * Anything else falls back to `"instagram"` with a stderr warning.
+ */
+function resolveInstagramHost(explicit?: string): InstagramApiHost {
+  const raw = explicit ?? process.env.INSTAGRAM_API_HOST;
+  if (!raw) return "instagram";
+  if (raw === "instagram" || raw === "facebook") return raw;
+  console.error(
+    `[meta-mcp] Warning: INSTAGRAM_API_HOST="${raw}" is not "instagram" or "facebook" — falling back to "instagram".`
+  );
+  return "instagram";
+}
+
 export interface MetaClientOptions {
   metaApiVersion?: string;
   threadsApiVersion?: string;
+  /** Graph host for Instagram tools. See {@link resolveInstagramHost}. */
+  instagramHost?: string;
   /**
    * Maximum number of retry attempts after the initial request fails with a
    * transient error (HTTP 429/500/502/503/504 or a thrown network error).
@@ -271,8 +296,11 @@ export class MetaClient {
       DEFAULT_THREADS_API_VERSION,
       options?.threadsApiVersion
     );
-    this.igBase = `https://graph.instagram.com/${metaVersion}`;
     this.fbBase = `https://graph.facebook.com/${metaVersion}`;
+    this.igBase =
+      resolveInstagramHost(options?.instagramHost) === "facebook"
+        ? this.fbBase
+        : `https://graph.instagram.com/${metaVersion}`;
     this.threadsBase = `https://graph.threads.net/${threadsVersion}`;
     // `Math.max(0, Infinity)` is `Infinity` (infinite loop) and `0 <= NaN` is
     // `false` (loop body never runs); reject non-finite values and fall back.

@@ -469,6 +469,44 @@ describe("MetaClient API version override (#70)", () => {
     expect(fbUrl).toContain("https://graph.facebook.com/v26.0/me");
   });
 
+  it("INSTAGRAM_API_HOST=facebook sends Instagram tools to graph.facebook.com", async () => {
+    vi.stubEnv("INSTAGRAM_API_HOST", "facebook");
+    const client = new MetaClient(mockConfig());
+    await client.ig("GET", "/me");
+
+    const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("https://graph.facebook.com/v25.0/me");
+    expect(url).not.toContain("graph.instagram.com");
+  });
+
+  it("instagramHost option takes precedence over INSTAGRAM_API_HOST", async () => {
+    vi.stubEnv("INSTAGRAM_API_HOST", "facebook");
+    const client = new MetaClient(mockConfig(), { instagramHost: "instagram" });
+    await client.ig("GET", "/me");
+
+    const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("https://graph.instagram.com/v25.0/me");
+  });
+
+  it("facebook host still honours the Graph version override", async () => {
+    const client = new MetaClient(mockConfig(), { instagramHost: "facebook", metaApiVersion: "v26.0" });
+    await client.ig("GET", "/me");
+
+    const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("https://graph.facebook.com/v26.0/me");
+  });
+
+  it("invalid INSTAGRAM_API_HOST falls back to graph.instagram.com with a stderr warning", async () => {
+    vi.stubEnv("INSTAGRAM_API_HOST", "evil.example.com");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = new MetaClient(mockConfig());
+    await client.ig("GET", "/me");
+
+    const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("https://graph.instagram.com/v25.0/me");
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('INSTAGRAM_API_HOST="evil.example.com"'));
+  });
+
   it("metaApiVersion override does NOT leak into IG token endpoints", async () => {
     const client = new MetaClient(mockConfig(), { metaApiVersion: "v26.0" });
     await client.igExchangeToken("short-tok");
