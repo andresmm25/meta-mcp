@@ -22,6 +22,33 @@ const API_VERSION_PATTERN = /^v\d+\.\d+$/;
 const IG_TOKEN_BASE = "https://graph.instagram.com";
 const THREADS_TOKEN_BASE = "https://graph.threads.net";
 
+// Meta puts a live `access_token=` in the query string of the `paging.next` /
+// `paging.previous` URLs it returns on list endpoints. Passing those through to
+// an MCP client puts the credential into the model context and into client
+// transcripts/logs, so URL-embedded credentials are redacted from every
+// successful response. Only query-string values inside strings are touched: a
+// JSON field literally named `access_token` (the point of the token exchange /
+// refresh tools) is left alone. Pagination keeps working through
+// `paging.cursors.after` / `before`, which the tools take as parameters.
+const URL_CREDENTIAL_PARAMS = /\b(access_token|client_secret|input_token|appsecret_proof)=[^&"\s]*/gi;
+
+export function redactUrlCredentials<T>(value: T): T {
+  if (typeof value === "string") {
+    return value.replace(URL_CREDENTIAL_PARAMS, "$1=REDACTED") as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactUrlCredentials(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = redactUrlCredentials(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 // Retry policy for transient Meta API failures (#61). 429 is the explicit
 // rate-limit signal; 502/503/504 are canonical gateway/availability errors;
 // 500 is included because Meta's infrastructure routinely returns transient
@@ -583,10 +610,10 @@ export class MetaClient {
             body: JSON.stringify(err),
           });
         }
-        return { data, rateLimit };
+        return { data: redactUrlCredentials(data), rateLimit };
       }
       const text = await res.text();
-      return { data: { raw: text, success: true }, rateLimit };
+      return { data: { raw: redactUrlCredentials(text), success: true }, rateLimit };
     }
 
     throw new Error("MetaClient: retry loop exited without resolution (unreachable)");

@@ -13,6 +13,7 @@ import {
   HASHTAG_CACHE_TTL_MS,
   parseRetryAfter,
   computeBackoffDelay,
+  redactUrlCredentials,
 } from "./meta-client.js";
 import { MetaConfig } from "../config.js";
 import { MetaApiError, MetaNetworkError, formatErrorResponse } from "../utils/errors.js";
@@ -67,6 +68,87 @@ describe("non-JSON response handling", () => {
     const result = await client.ig("GET", "/me");
 
     expect(result.data).toEqual({ raw: "", success: true });
+  });
+});
+
+describe("URL credential redaction in responses", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("redacts access_token from paging.next and paging.previous URLs", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        data: [{ id: "1" }],
+        paging: {
+          cursors: { before: "BEF", after: "AFT" },
+          previous: "https://graph.facebook.com/v25.0/1/media?access_token=EAASECRET123&limit=5&before=BEF",
+          next: "https://graph.facebook.com/v25.0/1/media?limit=5&access_token=EAASECRET123&after=AFT",
+        },
+      })
+    );
+
+    const client = new MetaClient(mockConfig());
+    const result = await client.ig("GET", "/1/media");
+    const serialized = JSON.stringify(result.data);
+
+    expect(serialized).not.toContain("EAASECRET123");
+    const paging = (result.data as { paging: { next: string; previous: string; cursors: { after: string } } }).paging;
+    expect(paging.next).toBe(
+      "https://graph.facebook.com/v25.0/1/media?limit=5&access_token=REDACTED&after=AFT"
+    );
+    expect(paging.previous).toContain("access_token=REDACTED&limit=5&before=BEF");
+    // Cursors (used for pagination) are untouched.
+    expect(paging.cursors.after).toBe("AFT");
+  });
+
+  it("redacts client_secret, input_token and appsecret_proof inside nested URLs", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        items: [{ link: "https://x.test/?client_secret=SEC1&input_token=TOK2&appsecret_proof=PRF3&keep=1" }],
+      })
+    );
+
+    const client = new MetaClient(mockConfig());
+    const result = await client.ig("GET", "/x");
+    const serialized = JSON.stringify(result.data);
+
+    expect(serialized).not.toMatch(/SEC1|TOK2|PRF3/);
+    expect(serialized).toContain("keep=1");
+  });
+
+  it("leaves a JSON field named access_token alone (token exchange/refresh results)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({ access_token: "NEWLONGLIVEDTOKEN", token_type: "bearer", expires_in: 5184000 })
+    );
+
+    const client = new MetaClient(mockConfig());
+    const result = await client.ig("GET", "/refresh_access_token");
+
+    expect(result.data).toEqual({
+      access_token: "NEWLONGLIVEDTOKEN",
+      token_type: "bearer",
+      expires_in: 5184000,
+    });
+  });
+
+  it("redacts credentials in non-JSON text responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("see https://graph.facebook.com/next?access_token=EAASECRET123&x=1", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      })
+    );
+
+    const client = new MetaClient(mockConfig());
+    const result = await client.ig("GET", "/me");
+
+    expect(JSON.stringify(result.data)).not.toContain("EAASECRET123");
+  });
+
+  it("does not alter responses without credentials", () => {
+    const input = { a: 1, b: [true, null, "plain"], c: { d: "https://x.test/?after=XYZ" } };
+    expect(redactUrlCredentials(input)).toEqual(input);
   });
 });
 
